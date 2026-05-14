@@ -1,0 +1,175 @@
+{
+  "name": "AI Content Localization (Shopify CSV)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c1b2c3d4-1111-4000-a000-000000000001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "p1", "name": "input_path",  "value": "/data/shopify-products-en.csv", "type": "string" },
+            { "id": "p2", "name": "output_path", "value": "/data/shopify-products-de.csv", "type": "string" },
+            { "id": "p3", "name": "target_lang", "value": "German",                         "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1b2c3d4-2222-4000-a000-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.input_path }}",
+        "options": {}
+      },
+      "id": "c1b2c3d4-3333-4000-a000-000000000003",
+      "name": "Read CSV File",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "operation": "fromFile",
+        "fileFormat": "csv",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "id": "c1b2c3d4-4444-4000-a000-000000000004",
+      "name": "Parse CSV → Rows",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 5,
+        "options": {}
+      },
+      "id": "c1b2c3d4-5555-4000-a000-000000000005",
+      "name": "Loop in Batches of 5",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",         "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type",      "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 2048,\n  \"system\": \"You translate Shopify product fields into \" + $('Config').first().json.target_lang + \". Preserve HTML structure exactly. Keep tone and selling points, adapt idioms naturally. Return the translated fields via the submit_translation tool.\",\n  \"tools\": [{\n    \"name\": \"submit_translation\",\n    \"description\": \"Submit the translated product fields.\",\n    \"input_schema\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"title\": { \"type\": \"string\", \"description\": \"Translated product title.\" },\n        \"body_html\": { \"type\": \"string\", \"description\": \"Translated body HTML, preserving original tags.\" },\n        \"seo_title\": { \"type\": \"string\", \"description\": \"Translated SEO title (~60 chars max).\" },\n        \"seo_description\": { \"type\": \"string\", \"description\": \"Translated SEO description (~155 chars max).\" }\n      },\n      \"required\": [\"title\", \"body_html\", \"seo_title\", \"seo_description\"]\n    }\n  }],\n  \"tool_choice\": { \"type\": \"tool\", \"name\": \"submit_translation\" },\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Translate this Shopify product to \" + $('Config').first().json.target_lang + \":\\n\\nTitle: \" + $json[\"Title\"] + \"\\n\\nBody (HTML):\\n\" + $json[\"Body (HTML)\"] + \"\\n\\nSEO Title: \" + ($json[\"SEO Title\"] || \"\") + \"\\nSEO Description: \" + ($json[\"SEO Description\"] || \"\")\n  }]\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "c1b2c3d4-6666-4000-a000-000000000006",
+      "name": "Claude — Translate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, 300]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Pull the structured translation back out of Claude's tool_use response and\n// merge it with the original Shopify row, preserving Handle, Vendor, Type, etc.\n\nconst response = $json;\nconst toolUse = (response.content || []).find(b => b.type === 'tool_use');\nif (!toolUse) {\n  throw new Error('No tool_use in Claude response — got stop_reason: ' + response.stop_reason);\n}\nconst translation = toolUse.input;\n\nconst originalRow = $('Loop in Batches of 5').item.json;\n\nreturn [{\n  json: {\n    ...originalRow,\n    'Title':           translation.title,\n    'Body (HTML)':     translation.body_html,\n    'SEO Title':       translation.seo_title,\n    'SEO Description': translation.seo_description,\n  }\n}];"
+      },
+      "id": "c1b2c3d4-7777-4000-a000-000000000007",
+      "name": "Merge Translation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "toFile",
+        "fileFormat": "csv",
+        "options": {
+          "fileName": "translated.csv"
+        }
+      },
+      "id": "c1b2c3d4-8888-4000-a000-000000000008",
+      "name": "Rows → CSV",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [1440, 480]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('Config').first().json.output_path }}",
+        "options": {}
+      },
+      "id": "c1b2c3d4-9999-4000-a000-000000000009",
+      "name": "Write Output CSV",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [1680, 480]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Config", "type": "main", "index": 0 }]]
+    },
+    "Config": {
+      "main": [[{ "node": "Read CSV File", "type": "main", "index": 0 }]]
+    },
+    "Read CSV File": {
+      "main": [[{ "node": "Parse CSV → Rows", "type": "main", "index": 0 }]]
+    },
+    "Parse CSV → Rows": {
+      "main": [[{ "node": "Loop in Batches of 5", "type": "main", "index": 0 }]]
+    },
+    "Loop in Batches of 5": {
+      "main": [
+        [{ "node": "Rows → CSV", "type": "main", "index": 0 }],
+        [{ "node": "Claude — Translate", "type": "main", "index": 0 }]
+      ]
+    },
+    "Claude — Translate": {
+      "main": [[{ "node": "Merge Translation", "type": "main", "index": 0 }]]
+    },
+    "Merge Translation": {
+      "main": [[{ "node": "Loop in Batches of 5", "type": "main", "index": 0 }]]
+    },
+    "Rows → CSV": {
+      "main": [[{ "node": "Write Output CSV", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "versionId": "00000000-0000-0000-0000-000000000003",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "id": "ai-content-localization",
+  "tags": ["llm", "claude", "shopify", "i18n", "csv", "structured-outputs"]
+}

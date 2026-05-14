@@ -1,0 +1,241 @@
+{
+  "name": "Shopify Order Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "shopify-order-created",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "b1b2c3d4-1111-4000-a000-000000000001",
+      "name": "Shopify orders/create Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "shopify-order-created"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "f1", "name": "order_id",       "value": "={{ $json.body.id }}",                          "type": "string" },
+            { "id": "f2", "name": "order_number",   "value": "={{ $json.body.order_number }}",                "type": "number" },
+            { "id": "f3", "name": "email",          "value": "={{ $json.body.email }}",                       "type": "string" },
+            { "id": "f4", "name": "first_name",     "value": "={{ $json.body.customer.first_name }}",         "type": "string" },
+            { "id": "f5", "name": "total_price",    "value": "={{ parseFloat($json.body.total_price) }}",     "type": "number" },
+            { "id": "f6", "name": "currency",       "value": "={{ $json.body.currency }}",                    "type": "string" },
+            { "id": "f7", "name": "line_items_qty", "value": "={{ $json.body.line_items.length }}",           "type": "number" },
+            { "id": "f8", "name": "storefront",     "value": "={{ $json.body.source_name || 'web' }}",        "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1b2c3d4-2222-4000-a000-000000000002",
+      "name": "Extract Order Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.total_price }}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1b2c3d4-3333-4000-a000-000000000003",
+      "name": "High-Value Order?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_OPS_CHAT_ID }}",
+        "text": "=🚨 *VIP Order* #{{ $('Extract Order Fields').item.json.order_number }}\n\n{{ $('Extract Order Fields').item.json.first_name }} ({{ $('Extract Order Fields').item.json.email }})\nTotal: *{{ $('Extract Order Fields').item.json.total_price }} {{ $('Extract Order Fields').item.json.currency }}*\nItems: {{ $('Extract Order Fields').item.json.line_items_qty }} · Source: {{ $('Extract Order Fields').item.json.storefront }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "b1b2c3d4-4444-4000-a000-000000000004",
+      "name": "Alert Ops Channel",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [960, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/profile-import/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Klaviyo-API-Key {{ $env.KLAVIYO_API_KEY }}" },
+            { "name": "revision",      "value": "2024-10-15" },
+            { "name": "accept",        "value": "application/json" },
+            { "name": "content-type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": {\n    \"type\": \"profile\",\n    \"attributes\": {\n      \"email\": $('Extract Order Fields').item.json.email,\n      \"first_name\": $('Extract Order Fields').item.json.first_name,\n      \"properties\": {\n        \"last_order_total\": $('Extract Order Fields').item.json.total_price,\n        \"customer_segment\": \"vip-prospect\"\n      }\n    }\n  }\n}",
+        "options": {}
+      },
+      "id": "b1b2c3d4-5555-4000-a000-000000000005",
+      "name": "Klaviyo — Tag VIP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/profile-import/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Klaviyo-API-Key {{ $env.KLAVIYO_API_KEY }}" },
+            { "name": "revision",      "value": "2024-10-15" },
+            { "name": "accept",        "value": "application/json" },
+            { "name": "content-type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": {\n    \"type\": \"profile\",\n    \"attributes\": {\n      \"email\": $('Extract Order Fields').item.json.email,\n      \"first_name\": $('Extract Order Fields').item.json.first_name,\n      \"properties\": {\n        \"last_order_total\": $('Extract Order Fields').item.json.total_price,\n        \"customer_segment\": \"new-customer\"\n      }\n    }\n  }\n}",
+        "options": {}
+      },
+      "id": "b1b2c3d4-6666-4000-a000-000000000006",
+      "name": "Klaviyo — Tag Standard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"received\": true, \"order_id\": $('Extract Order Fields').item.json.order_id }",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "b1b2c3d4-7777-4000-a000-000000000007",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1440, 300]
+    }
+  ],
+  "connections": {
+    "Shopify orders/create Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Order Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Order Fields": {
+      "main": [
+        [
+          {
+            "node": "High-Value Order?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High-Value Order?": {
+      "main": [
+        [
+          {
+            "node": "Alert Ops Channel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Klaviyo — Tag Standard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Ops Channel": {
+      "main": [
+        [
+          {
+            "node": "Klaviyo — Tag VIP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo — Tag VIP": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo — Tag Standard": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true
+  },
+  "versionId": "00000000-0000-0000-0000-000000000002",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "id": "shopify-order-pipeline",
+  "tags": ["shopify", "klaviyo", "telegram", "e-commerce", "webhook"]
+}

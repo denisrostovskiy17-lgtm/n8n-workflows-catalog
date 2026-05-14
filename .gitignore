@@ -1,0 +1,20 @@
+# Credentials and local config
+.env
+.env.local
+*.secret
+
+# n8n local data (if testing locally)
+.n8n/
+n8n_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Local test files
+test-input.csv
+test-output.csv
